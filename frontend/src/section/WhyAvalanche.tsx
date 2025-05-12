@@ -11,9 +11,9 @@ const WhyAvalanche = () => {
         subtitle='Powered by one of the fastest, most reliable blockchain networks'
       />
 
-      <div className='grid gap-4 sm:grid-cols-2' data-aos="fade-up">
+      <div className='grid gap-4 sm:grid-cols-2' data-aos='fade-up'>
         {AVALANCHE_BENEFITS.map((benefit, index) => (
-          <Card key={index} className='bg-white p-4 shadow-none'>
+          <Card key={index} className='p-4 shadow-none'>
             <CardContent className='p-2'>
               <benefit.icon className='h-8 w-8 text-primary mb-4' />
               <h3 className='font-semibold text-lg'>{benefit.title}</h3>

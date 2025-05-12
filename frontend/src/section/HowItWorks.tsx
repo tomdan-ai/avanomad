@@ -11,7 +11,7 @@ import { cn } from '@/lib/utils'
 
 const HowItWorks = () => {
   return (
-    <Section id='how-it-works' className='bg-white'>
+    <Section id='how-it-works' className=''>
       <SectionHeading
         title='How It Works'
         centered

@@ -16,7 +16,7 @@ const Home = () => {
       <div className='relative'>
         <div
           className={
-            'absolute inset-0 bg-gradient-to-tr from-primary-red to-primary-blue z-[-1] //via-white/80'
+            'absolute inset-0 bg-gradient-to-tr from-primary-red to-primary-blue z-[-1] via-white/80 dark:via-black/80 '
           }
         />
         <Hero />

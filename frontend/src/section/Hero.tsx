@@ -18,8 +18,8 @@ const Hero = () => {
 
       {/* Decorative elements */}
       <div className='absolute inset-0 z-0'>
-        <div className='absolute top-1/4 left-1/4 w-64 h-64 rounded-full bg-red-600/20 blur-3xl' />
-        <div className='absolute bottom-1/4 right-1/4 w-64 h-64 rounded-full bg-blue-600/20 blur-3xl' />
+        <div className='absolute top-1/4 left-1/4 w-64 h-64 rounded-full bg-red-600/20 dark:bg-red-700/30 blur-3xl' />
+        <div className='absolute bottom-1/4 right-1/4 w-64 h-64 rounded-full bg-blue-600/20 dark:bg-blue-700/30 blur-3xl' />
       </div>
 
       <div
@@ -30,14 +30,14 @@ const Hero = () => {
           {' '}
           <h1
             className={
-              'text-4xl md:text-5xl lg:text-6xl font-[900] max-w-4xl mx-auto leading-tight //text-gray-900 text-white'
+              'text-4xl md:text-5xl lg:text-6xl font-[900] max-w-4xl mx-auto leading-tight text-black dark:text-white'
             }
           >
             Crypto Access for Everyone — Even Without Internet
           </h1>
           <p
             className={
-              'mt-6 text-xl md:text-2xl max-w-2xl mx-auto text-gray-200 font-light'
+              'mt-6 text-xl md:text-2xl max-w-2xl mx-auto text-gray-700 dark:text-gray-300 font-light'
             }
           >
             Dial a code. Swap fiat ↔ crypto. Powered by Avalanche.

@@ -4,7 +4,7 @@ import { PROBLEM_STATS } from '@/constant'
 
 const Problems = () => {
   return (
-    <Section id='problems ' className='bg-muted/30'>
+    <Section id='problems ' className='bg-muted/30' fullWidth>
       <SectionHeading title='The Problems' centered />
 
       <div className='grid gap-6 md:grid-cols-2 lg:grid-cols-3'>
