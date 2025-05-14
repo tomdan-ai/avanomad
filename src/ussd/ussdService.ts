@@ -54,24 +54,58 @@ export const handleUSSD = async (req: express.Request, res: express.Response) =>
         lastActivity: Date.now()
       };
       
-      // Generate wallet address deterministically from phone number
-      // We'll just check if this address exists in our database
-      const walletAddress = getWalletAddressFromPhoneAndPin(phoneNumber, '0000'); // Default PIN for checking
-      
-      // Check if address exists in our database
-      const wallet = await Wallet.findOne({ walletAddress }).exec();
-      
-      if (!wallet) {
-        sessions[sessionId].state = MenuState.CREATE_ACCOUNT;
-      } else {
-        // Get user associated with this wallet
-        const user = await User.findById(wallet.userId).exec();
-        if (user) {
-          sessions[sessionId].user = user;
-          sessions[sessionId].wallet = wallet;
-        } else {
+      try {
+        // Hash the phone number for lookup
+        const phoneHash = crypto.createHash('sha256').update(phoneNumber).digest('hex');
+        logger.debug(`Looking up user with phoneHash: ${phoneHash}`);
+        
+        // Check if user exists by phone hash
+        const user = await User.findOne({ phoneNumber: phoneHash }).exec();
+        
+        if (!user) {
+          logger.debug(`No user found with phoneHash: ${phoneHash}, creating new account`);
           sessions[sessionId].state = MenuState.CREATE_ACCOUNT;
+        } else {
+          logger.debug(`Found user: ${user._id} with phoneHash: ${phoneHash}`);
+          sessions[sessionId].user = user;
+          
+          // Get user's wallet - ensure userId is a valid ObjectId
+          try {
+            // Fix the typing by explicitly handling the user._id type
+            const wallet = await Wallet.findOne({ 
+              userId: user._id  // This works because userId in schema references User model
+            }).exec();
+            
+            if (wallet) {
+              logger.debug(`Found wallet for user: ${wallet.walletAddress}`);
+              sessions[sessionId].wallet = wallet;
+            } else {
+              logger.warn(`No wallet found for user: ${user._id}`);
+              // If no wallet is found but user exists, attempt to recover
+              const defaultPin = '0000'; // Placeholder - we'll ask for PIN later
+              const walletAddress = user.walletAddress || 
+                getWalletAddressFromPhoneAndPin(phoneNumber, defaultPin);
+              
+              // Create a placeholder wallet for now
+              if (walletAddress) {
+                const newWallet = await Wallet.create({
+                  userId: user._id,
+                  walletAddress: walletAddress,
+                  currency: 'USDC.e'
+                });
+                sessions[sessionId].wallet = newWallet;
+                logger.info(`Created recovery wallet for user: ${user._id}`);
+              }
+            }
+          } catch (walletError) {
+            logger.error(`Error retrieving wallet: ${walletError}`);
+            // Continue with session even if wallet lookup fails
+          }
         }
+      } catch (error) {
+        logger.error(`Error initializing session: ${error}`);
+        // Default to create account if there's an error
+        sessions[sessionId].state = MenuState.CREATE_ACCOUNT;
       }
     } else {
       // Update last activity
@@ -80,6 +114,11 @@ export const handleUSSD = async (req: express.Request, res: express.Response) =>
     
     const session = sessions[sessionId];
     let response = '';
+    
+    // If we're in MAIN state but don't have user/wallet, go to CREATE_ACCOUNT
+    if (session.state === MenuState.MAIN && (!session.user || !session.wallet)) {
+      session.state = MenuState.CREATE_ACCOUNT;
+    }
     
     // Process based on current state and input
     switch (session.state) {
@@ -142,6 +181,44 @@ export const handleUSSD = async (req: express.Request, res: express.Response) =>
           }
         } else {
           response = 'CON Please enter a 4-digit PIN:';
+        }
+        break;
+        
+      case MenuState.MAIN:
+        // Main menu
+        if (text === '') {
+          response = 'CON Welcome back to Avanomad\n';
+          response += '1. Check Balance\n';
+          response += '2. Deposit Funds\n';
+          response += '3. Withdraw Funds\n';
+          response += '4. Transfer Funds';
+        } else {
+          const choice = text.split('*').pop();
+          
+          switch (choice) {
+            case '1':
+              session.state = MenuState.CHECK_BALANCE;
+              response = 'CON Enter PIN to check balance:';
+              break;
+            case '2':
+              session.state = MenuState.DEPOSIT;
+              response = 'CON Enter amount to deposit (in local currency):';
+              break;
+            case '3':
+              session.state = MenuState.WITHDRAW;
+              response = 'CON Enter amount to withdraw (in USDC.e):';
+              break;
+            case '4':
+              session.state = MenuState.TRANSFER;
+              response = 'CON Enter recipient phone number:';
+              break;
+            default:
+              response = 'CON Invalid option. Please try again.\n';
+              response += '1. Check Balance\n';
+              response += '2. Deposit Funds\n';
+              response += '3. Withdraw Funds\n';
+              response += '4. Transfer Funds';
+          }
         }
         break;
         
@@ -212,8 +289,10 @@ export const handleUSSD = async (req: express.Request, res: express.Response) =>
         if (pin.length === 4 && /^\d+$/.test(pin)) {
           const wallet = generateDeterministicWallet(phoneNumber, pin);
           
-          // Verify wallet ownership
-          if (session.wallet && wallet.address.toLowerCase() === session.wallet.walletAddress.toLowerCase()) {
+          // Verify wallet ownership - check against stored address or derive address
+          const walletAddress = session.wallet?.walletAddress;
+          
+          if (walletAddress && wallet.address.toLowerCase() === walletAddress.toLowerCase()) {
             if (session.data.nextState === MenuState.CONFIRM_TRANSACTION) {
               session.state = MenuState.CONFIRM_TRANSACTION;
               session.data.pin = pin;
@@ -306,8 +385,6 @@ export const handleUSSD = async (req: express.Request, res: express.Response) =>
         session.state = MenuState.MAIN;
         break;
         
-      // Additional states follow a similar pattern...
-        
       default:
         response = 'END An error occurred. Please try again.';
         session.state = MenuState.MAIN;
@@ -316,7 +393,7 @@ export const handleUSSD = async (req: express.Request, res: express.Response) =>
     res.set('Content-Type', 'text/plain');
     res.send(response);
   } catch (error) {
-    logger.error('USSD handler error:', error);
+    logger.error(`USSD handler error: ${error}`);
     res.set('Content-Type', 'text/plain');
     res.send('END An error occurred. Please try again later.');
   }
