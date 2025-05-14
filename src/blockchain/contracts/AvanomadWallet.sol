@@ -16,7 +16,7 @@ contract AvanomadWallet is Ownable {
     event Withdrawal(address indexed token, address indexed to, uint256 amount);
     event MetaTransaction(address indexed user, address indexed executor, bytes action);
     
-    constructor() {
+    constructor() Ownable(msg.sender) {
         operators[msg.sender] = true;
     }
     
