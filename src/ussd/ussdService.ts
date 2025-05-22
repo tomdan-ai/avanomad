@@ -24,6 +24,7 @@ import { faucetWallet } from '../config/wallet';
 import { transferFromWallet } from '../blockchain/services/tokenService';
 import { ethers } from 'ethers';
 import { avalancheProvider } from '../blockchain/services/provider';
+import { requestFiatPayout } from '../services/payoutService';
 
 // USSD Menu States
 enum MenuState {
@@ -35,7 +36,10 @@ enum MenuState {
   CONFIRM_TRANSACTION = 'CONFIRM_TRANSACTION',
   CREATE_ACCOUNT = 'CREATE_ACCOUNT',
   SET_PIN = 'SET_PIN',
-  ENTER_PIN = 'ENTER_PIN'
+  ENTER_PIN = 'ENTER_PIN',
+  ENTER_BANK_DETAILS = 'ENTER_BANK_DETAILS',
+  ENTER_ACCOUNT_NUMBER = 'ENTER_ACCOUNT_NUMBER',
+  CONFIRM_WITHDRAWAL = 'CONFIRM_WITHDRAWAL'
 }
 
 // Session storage (in-memory for demo)
@@ -314,10 +318,18 @@ export const handleUSSD = async (req: express.Request, res: express.Response) =>
             response = 'CON Invalid amount. Please enter a valid amount:';
           } else {
             session.data.withdrawAmount = amount;
+            
+            // Calculate approximate NGN value
+            const exchangeRate = 1200; // 1 USDC.e ≈ 1200 NGN (example rate)
+            const ngnAmount = (amount * exchangeRate).toFixed(2);
+            
+            session.data.withdrawNgnAmount = ngnAmount;
+            
+            // First get PIN before bank details
             session.state = MenuState.ENTER_PIN;
-            session.data.nextState = MenuState.CONFIRM_TRANSACTION;
+            session.data.nextState = MenuState.ENTER_BANK_DETAILS;
             session.data.transactionType = TransactionType.WITHDRAWAL;
-            response = 'CON Enter your PIN to confirm withdrawal:';
+            response = 'CON Enter your PIN to proceed:';
           }
         } else {
           response = 'CON Enter amount to withdraw (in USDC.e):';
@@ -401,16 +413,14 @@ export const handleUSSD = async (req: express.Request, res: express.Response) =>
           const walletAddress = session.wallet?.walletAddress;
           
           if (walletAddress && wallet.address.toLowerCase() === walletAddress.toLowerCase()) {
+            // Store PIN for later use regardless of flow
+            session.data.pin = pin;
+            
             if (session.data.nextState === MenuState.CONFIRM_TRANSACTION) {
               session.state = MenuState.CONFIRM_TRANSACTION;
-              session.data.pin = pin;
               
               if (session.data.transactionType === TransactionType.DEPOSIT) {
                 response = `CON Confirm deposit of ${session.data.depositAmount} to your wallet:\n`;
-                response += '1. Confirm\n';
-                response += '2. Cancel';
-              } else if (session.data.transactionType === TransactionType.WITHDRAWAL) {
-                response = `CON Confirm withdrawal of ${session.data.withdrawAmount} USDC.e:\n`;
                 response += '1. Confirm\n';
                 response += '2. Cancel';
               } else if (session.data.transactionType === TransactionType.TRANSFER) {
@@ -418,6 +428,18 @@ export const handleUSSD = async (req: express.Request, res: express.Response) =>
                 response += '1. Confirm\n';
                 response += '2. Cancel';
               }
+            } else if (session.data.nextState === MenuState.ENTER_BANK_DETAILS) {
+              // This is the withdrawal flow
+              session.state = MenuState.ENTER_BANK_DETAILS;
+              
+              // Set bank selection menu here directly
+              response = 'CON Select your bank:\n';
+              response += '1. Access Bank\n';
+              response += '2. Guaranty Trust Bank\n';
+              response += '3. First Bank\n';
+              response += '4. United Bank for Africa\n';
+              response += '5. Zenith Bank\n';
+              response += '9. More banks';
             } else {
               session.state = session.data.nextState || MenuState.MAIN;
             }
@@ -631,6 +653,136 @@ export const handleUSSD = async (req: express.Request, res: express.Response) =>
           response = 'END Transaction cancelled.';
           session.state = MenuState.MAIN;
         }
+        break;
+
+      case MenuState.ENTER_BANK_DETAILS:
+        response = 'CON Select your bank:\n';
+        response += '1. Access Bank\n';
+        response += '2. Guaranty Trust Bank\n';
+        response += '3. First Bank\n';
+        response += '4. United Bank for Africa\n';
+        response += '5. Zenith Bank\n';
+        response += '9. More banks';
+        
+        session.state = MenuState.ENTER_ACCOUNT_NUMBER;
+        break;
+
+      case MenuState.ENTER_ACCOUNT_NUMBER:
+        const bankChoice = text.split('*').pop() || '';
+        
+        // Map bank choice to code
+        const bankCodes = {
+          '1': '044', // Access Bank
+          '2': '058', // GTBank
+          '3': '011', // First Bank
+          '4': '033', // UBA
+          '5': '057'  // Zenith Bank
+        };
+        
+        if (!bankCodes[bankChoice as keyof typeof bankCodes]) {
+          response = 'END Invalid bank selection. Please try again.';
+          session.state = MenuState.MAIN;
+          break;
+        }
+        
+        session.data.bankCode = bankCodes[bankChoice as keyof typeof bankCodes];
+        response = 'CON Enter your account number:';
+        session.state = MenuState.CONFIRM_WITHDRAWAL;
+        break;
+
+      case MenuState.CONFIRM_WITHDRAWAL:
+        // First part is collecting the account number
+        if (!session.data.accountNumber) {
+          const accountNumber = text.split('*').pop() || '';
+          
+          if (!/^\d{10}$/.test(accountNumber)) {
+            response = 'CON Invalid account number. Please enter a 10-digit account number:';
+            break;
+          }
+          
+          session.data.accountNumber = accountNumber;
+          
+          // Show final confirmation
+          response = `CON Confirm withdrawal of ${session.data.withdrawAmount} USDC.e (≈${session.data.withdrawNgnAmount} NGN)\n`;
+          response += `to Account: ${accountNumber}\n`;
+          response += '1. Confirm\n';
+          response += '2. Cancel';
+          break;
+        }
+        
+        // Second part is confirming the transaction
+        const withdrawalChoice = text.split('*').pop();
+        
+        if (withdrawalChoice === '1') { // Confirm
+          try {
+            // 1. Get user's wallet and transfer USDC to treasury
+            const wallet = await getWalletForTransaction(
+              phoneNumber,
+              session.data.pin,
+              session.wallet.encryptedKey
+            );
+            
+            const treasuryAddress = process.env.TREASURY_ADDRESS || faucetWallet.address;
+            
+            // Execute the blockchain transaction
+            const receipt = await transferFromWallet(
+              'USDC.e',
+              wallet,
+              treasuryAddress,
+              session.data.withdrawAmount.toString()
+            );
+            
+            // 2. Record blockchain transaction
+            await Transaction.create({
+              userId: session.user._id,
+              amount: session.data.withdrawAmount,
+              currency: 'USDC.e',
+              type: TransactionType.WITHDRAWAL,
+              status: TransactionStatus.COMPLETED,
+              reference: receipt.transactionHash,
+              walletAddress: session.wallet.walletAddress,
+              blockNumber: receipt.blockNumber,
+              blockchainTxHash: receipt.transactionHash
+            });
+            
+            // 3. Initiate fiat payout to user's bank account
+            const payoutResponse = await requestFiatPayout(
+              session.user._id.toString(),
+              parseFloat(session.data.withdrawNgnAmount),
+              session.data.bankCode,
+              session.data.accountNumber,
+              phoneNumber
+            );
+            
+            response = 'END Withdrawal initiated successfully!\n';
+            response += `Amount: ${session.data.withdrawAmount} USDC.e (≈${session.data.withdrawNgnAmount} NGN)\n`;
+            response += `Account: ${session.data.accountNumber}\n`;
+            response += `Reference: ${payoutResponse.reference}\n`;
+            response += 'Your bank account will be credited shortly.';
+            
+          } catch (error) {
+            logger.error('Error processing withdrawal:', error);
+            
+            // Create failed transaction record
+            await Transaction.create({
+              userId: session.user._id,
+              amount: session.data.withdrawAmount,
+              currency: 'USDC.e',
+              type: TransactionType.WITHDRAWAL,
+              status: TransactionStatus.FAILED,
+              reference: `failed-${Date.now()}`,
+              walletAddress: session.wallet.walletAddress,
+              failureReason: error instanceof Error ? error.message : 'Unknown error'
+            });
+            
+            response = 'END Withdrawal failed. Please try again later.\n';
+            response += 'Error: ' + (error instanceof Error ? error.message : 'Unknown error');
+          }
+        } else {
+          // Cancel
+          response = 'END Withdrawal cancelled.';
+        }
+        session.state = MenuState.MAIN;
         break;
     }
     

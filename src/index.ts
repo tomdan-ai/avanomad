@@ -6,6 +6,7 @@ import dotenv from 'dotenv';
 import { connectToDatabase } from './config/database';
 import { handleUSSD } from './ussd/ussdService';
 import { simulateDepositProcessing } from './services/depositProcessor';
+import { checkPendingPayouts } from './services/payoutService';
 import logger from './config/logger';
 
 // Load environment variables
@@ -66,6 +67,15 @@ connectToDatabase()
           logger.error('Error in scheduled deposit processing:', error);
         }
       }, 30000);
+
+      // Check pending payouts every 5 minutes
+      setInterval(async () => {
+        try {
+          await checkPendingPayouts();
+        } catch (error) {
+          logger.error('Error checking pending payouts:', error);
+        }
+      }, 5 * 60 * 1000);
     });
   })
   .catch((error) => {

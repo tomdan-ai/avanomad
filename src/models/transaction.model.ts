@@ -6,6 +6,7 @@ export enum TransactionType {
   TRANSFER = 'TRANSFER',
   RECEIVE = 'RECEIVE',
   GAS_FUNDING = 'GAS_FUNDING',
+  PAYOUT = 'PAYOUT',
 }
 
 export enum TransactionStatus {
@@ -26,6 +27,8 @@ export interface ITransaction extends Document {
   blockchainTxHash?: string;
   blockNumber?: number;
   failureReason?: string;
+  accountNumber?: string;
+  bankCode?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -78,6 +81,14 @@ const transactionSchema = new Schema<ITransaction>(
       required: false,
     },
     failureReason: {
+      type: String,
+      required: false,
+    },
+    accountNumber: {
+      type: String,
+      required: false,
+    },
+    bankCode: {
       type: String,
       required: false,
     },
