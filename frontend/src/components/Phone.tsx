@@ -2,12 +2,29 @@
 
 import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
+import { processUSSD, clearUSSDSession } from "@/services/ussdService"
 
 export function Phone() {
   const [input, setInput] = useState("")
   const [displayText, setDisplayText] = useState("Enter USSD code")
   const [isProcessing, setIsProcessing] = useState(false)
+  const [phoneNumber, setPhoneNumber] = useState("")
+  const [ussdText, setUssdText] = useState("")
   const inputRef = useRef<HTMLDivElement>(null)
+
+  // Show phone number prompt on first load
+  useEffect(() => {
+    const savedPhone = localStorage.getItem('ussd_phone_number')
+    if (savedPhone) {
+      setPhoneNumber(savedPhone)
+    } else {
+      const phone = prompt("Enter your phone number to use the USSD service:", "07012345678")
+      if (phone) {
+        setPhoneNumber(phone)
+        localStorage.setItem('ussd_phone_number', phone)
+      }
+    }
+  }, [])
 
   // Handle button press
   const handleButtonPress = (value: string) => {
@@ -16,32 +33,68 @@ export function Phone() {
     if (value === "call") {
       handleCall()
     } else if (value === "clear") {
-      setInput((prev) => prev.slice(0, -1))
+      if (input.length === 0) {
+        // Reset session on clear when input is empty
+        clearUSSDSession()
+        setUssdText("")
+        setDisplayText("Enter USSD code")
+      } else {
+        setInput((prev) => prev.slice(0, -1))
+      }
     } else {
       setInput((prev) => prev + value)
     }
   }
 
   // Handle call/send
-  const handleCall = () => {
-    if (input.length === 0) return
+  const handleCall = async () => {
+    if (input.length === 0 || !phoneNumber) return
 
     setIsProcessing(true)
     setDisplayText(`Dialing ${input}...`)
 
-    // Simulate USSD response
-    setTimeout(() => {
-      if (input === "*123#") {
-        setDisplayText("Avanomad\n1. Check Balance\n2. Buy Crypto\n3. Sell Crypto\n4. Transaction History")
-        setInput("")
-      } else if (input.startsWith("*")) {
-        setDisplayText("USSD code not recognized")
+    try {
+      // Determine if this is initial code or a response
+      let textToSend = input
+      if (input.startsWith("*") && input.endsWith("#")) {
+        // This is a new USSD code - reset the session text
+        setUssdText("")
+        textToSend = ""
+      } else if (ussdText) {
+        // This is a response to an existing session
+        textToSend = ussdText ? `${ussdText}*${input}` : input
+      }
+
+      // Update the cumulative USSD text
+      if (ussdText && input) {
+        setUssdText(prev => `${prev}*${input}`)
+      } else if (input.startsWith("*") && input.endsWith("#")) {
+        // Start of new session with a USSD code
+        setUssdText("")
+      } else {
+        setUssdText(input)
+      }
+
+      // Process the USSD request
+      const response = await processUSSD(phoneNumber, textToSend)
+      
+      // Display the response
+      setDisplayText(response.replace(/^(CON|END)\s/, ""))
+      
+      // Clear input only if the session continues
+      if (response.startsWith("CON")) {
         setInput("")
       } else {
-        setDisplayText(`Calling ${input}...`)
+        // Session ended, reset everything
+        setInput("")
+        setUssdText("")
       }
+    } catch (error) {
+      console.error('Error processing USSD request:', error)
+      setDisplayText("Connection error. Please try again.")
+    } finally {
       setIsProcessing(false)
-    }, 1500)
+    }
   }
 
   // Handle keyboard input
@@ -71,6 +124,23 @@ export function Phone() {
     }
   }
 
+  // Render screen content
+  const renderScreen = () => {
+    if (isProcessing) {
+      return (
+        <div className="text-center animate-pulse">
+          Processing...
+        </div>
+      )
+    }
+    
+    return (
+      <div className="whitespace-pre-wrap">
+        {displayText}
+      </div>
+    )
+  }
+
   return (
     <div
       className="relative w-[300px] h-[600px] bg-gray-300 rounded-[40px] shadow-xl p-6 flex flex-col"
@@ -88,7 +158,7 @@ export function Phone() {
           <span>Battery: ▓▓▓▒░</span>
         </div>
         <div className="flex-1 flex flex-col">
-          <div className="text-black font-mono text-sm whitespace-pre-line flex-1">{displayText}</div>
+          <div className="text-black font-mono text-sm whitespace-pre-line flex-1">{renderScreen()}</div>
           <div className="text-black font-mono text-lg mt-2">{input}</div>
         </div>
       </div>
@@ -133,6 +203,28 @@ export function Phone() {
           </Button>
         ))}
       </div>
+
+      {/* Bottom connection status */}
+      <div className="text-xs text-center mt-1">
+        {phoneNumber ? (
+          <span className="text-green-600">Connected as: {phoneNumber.substring(0, 4)}***{phoneNumber.substring(phoneNumber.length - 2)}</span>
+        ) : (
+          <span className="text-red-600">Not connected</span>
+        )}
+      </div>
+
+      {/* Reset session button */}
+      <button 
+        className="text-xs mt-2 p-1 bg-red-500 text-white rounded"
+        onClick={() => {
+          clearUSSDSession();
+          setUssdText("");
+          setDisplayText("Enter USSD code");
+          setInput("");
+        }}
+      >
+        Reset Session
+      </button>
     </div>
   )
 }
