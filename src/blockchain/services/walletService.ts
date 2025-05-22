@@ -1,60 +1,54 @@
 import { ethers } from 'ethers';
 import crypto from 'crypto';
+import { avalancheProvider } from './provider';
 import logger from '../../config/logger';
 
 /**
- * Generates a deterministic wallet address based on phone number and PIN
- * The same phone number + PIN will always generate the same wallet
- * No need to store the phone number or private key
+ * Generates a deterministic wallet from phone number and PIN
  */
-export const generateDeterministicWallet = (
-  phoneNumber: string, 
-  pin: string,
-  salt?: string // Optional salt for additional security
-): ethers.Wallet => {
+export function generateDeterministicWallet(phoneNumber: string, pin: string): ethers.Wallet {
   try {
-    // Salt can be a fixed value for your application or environment-specific
-    const appSalt = salt || process.env.WALLET_GENERATION_SALT || 'avanomad-avalanche-wallet';
-    
-    // Create a deterministic seed from phone number and PIN
-    // This uses SHA-256 to create a secure seed from the input data
-    const seedData = `${phoneNumber}-${pin}-${appSalt}`;
+    if (!process.env.WALLET_GENERATION_SALT) {
+      throw new Error('WALLET_GENERATION_SALT environment variable is not set');
+    }
+
+    // Create a deterministic seed from phone + PIN + salt
+    const seedData = `${phoneNumber}-${pin}-${process.env.WALLET_GENERATION_SALT}`;
     const seedHash = crypto.createHash('sha256').update(seedData).digest('hex');
     
-    // Create a wallet from the deterministic seed
-    return ethers.Wallet.fromMnemonic(
-      ethers.utils.entropyToMnemonic(
-        ethers.utils.arrayify('0x' + seedHash.substring(0, 32))
-      )
-    );
+    // Create a wallet from the private key (seedHash)
+    const wallet = new ethers.Wallet(seedHash);
+    
+    // Connect wallet to provider
+    const connectedWallet = wallet.connect(avalancheProvider);
+    
+    // Log that we created a real wallet (without exposing private key)
+    logger.info(`Generated real deterministic wallet: ${wallet.address} for phone hash: ${crypto.createHash('sha256').update(phoneNumber).digest('hex').substring(0, 8)}`);
+
+    return connectedWallet;
   } catch (error) {
-    logger.error('Error generating deterministic wallet:', error);
-    throw new Error('Failed to generate wallet');
+    logger.error('Failed to generate deterministic wallet:', error);
+    throw new Error('Wallet generation failed');
   }
-};
+}
 
 /**
- * Retrieves a wallet address from phone number and PIN
- * This allows users to recover their wallet address without storing phone numbers
+ * Test if a wallet is valid and connected to the blockchain
  */
-export const getWalletAddressFromPhoneAndPin = (
-  phoneNumber: string,
-  pin: string,
-  salt?: string
-): string => {
-  const wallet = generateDeterministicWallet(phoneNumber, pin, salt);
-  return wallet.address;
-};
-
-/**
- * Verifies that a wallet address belongs to a given phone number and PIN
- */
-export const verifyWalletOwnership = (
-  phoneNumber: string,
-  pin: string,
-  walletAddress: string,
-  salt?: string
-): boolean => {
-  const derivedAddress = getWalletAddressFromPhoneAndPin(phoneNumber, pin, salt);
-  return derivedAddress.toLowerCase() === walletAddress.toLowerCase();
-};
+export async function testWalletValidity(wallet: ethers.Wallet): Promise<boolean> {
+  try {
+    // Try to get the chain ID to verify connection
+    const chainId = await wallet.provider.getNetwork().then(n => n.chainId);
+    
+    // Get the wallet's address from the blockchain (different from local calculation)
+    const code = await wallet.provider.getCode(wallet.address);
+    
+    logger.info(`Wallet test: Address ${wallet.address}, Connected to chain ID: ${chainId}`);
+    logger.info(`Code at address: ${code === '0x' ? 'Normal account (not a contract)' : 'Contract account'}`);
+    
+    return true;
+  } catch (error) {
+    logger.error('Wallet validity test failed:', error);
+    return false;
+  }
+}

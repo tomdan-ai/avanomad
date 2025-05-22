@@ -5,6 +5,7 @@ import morgan from 'morgan';
 import dotenv from 'dotenv';
 import { connectToDatabase } from './config/database';
 import { handleUSSD } from './ussd/ussdService';
+import { simulateDepositProcessing } from './services/depositProcessor';
 import logger from './config/logger';
 
 // Load environment variables
@@ -34,6 +35,17 @@ app.get('/health', (req, res) => {
 // USSD endpoint
 app.post('/ussd', handleUSSD);
 
+// Manual deposit processing endpoint (for demo)
+app.post('/process-deposits', async (req, res) => {
+  try {
+    await simulateDepositProcessing();
+    res.status(200).json({ success: true, message: 'Deposits processed' });
+  } catch (error) {
+    logger.error('Error processing deposits:', error);
+    res.status(500).json({ success: false, error: 'Failed to process deposits' });
+  }
+});
+
 // Error handling middleware
 app.use((err: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {
   logger.error('Unhandled error:', err);
@@ -45,6 +57,15 @@ connectToDatabase()
   .then(() => {
     app.listen(PORT, () => {
       logger.info(`Server running on port ${PORT}`);
+      
+      // Set up periodic deposit processing (every 30 seconds)
+      setInterval(async () => {
+        try {
+          await simulateDepositProcessing();
+        } catch (error) {
+          logger.error('Error in scheduled deposit processing:', error);
+        }
+      }, 30000);
     });
   })
   .catch((error) => {

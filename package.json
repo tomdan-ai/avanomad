@@ -8,7 +8,8 @@
     "build": "tsc -p tsconfig.json",
     "lint": "eslint . --ext .ts",
     "deploy-contract": "ts-node src/blockchain/scripts/deploy.ts",
-    "mock-ussd": "ts-node src/ussd/mockUssdCli.ts"
+    "mock-ussd": "ts-node src/ussd/mockUssdCli.ts",
+    "process-deposits": "ts-node src/scripts/processDeposits.ts"
   },
   "keywords": [],
   "author": "",

@@ -3,9 +3,9 @@ import mongoose, { Document, Schema } from 'mongoose';
 export interface IWallet extends Document {
   userId: mongoose.Types.ObjectId;
   walletAddress: string;
-  privateKey?: string;
-  balance: number;
+  encryptedKey?: string; // Added field to store encrypted private key
   currency: string;
+  balance: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -22,17 +22,17 @@ const walletSchema = new Schema<IWallet>(
       required: true,
       unique: true,
     },
-    privateKey: {
+    encryptedKey: {
       type: String,
-      required: false,
-    },
-    balance: {
-      type: Number,
-      default: 0,
+      required: false, // Optional for backward compatibility
     },
     currency: {
       type: String,
       default: 'USDC.e',
+    },
+    balance: {
+      type: Number,
+      default: 0,
     },
   },
   {
@@ -40,4 +40,4 @@ const walletSchema = new Schema<IWallet>(
   }
 );
 
-export const Wallet = mongoose.model<IWallet>('Wallet', walletSchema);
+export default mongoose.model<IWallet>('Wallet', walletSchema);

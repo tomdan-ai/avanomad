@@ -1,13 +1,29 @@
 import express from 'express';
 import mongoose from 'mongoose';
 import * as tokenService from '../blockchain/services/tokenService';
-import { generateDeterministicWallet, getWalletAddressFromPhoneAndPin } from '../blockchain/services/walletService';
+import { 
+  generateDeterministicWallet, 
+  testWalletValidity
+} from '../blockchain/services/walletService';
+
+// Helper function to get wallet address from phone and PIN
+const getWalletAddressFromPhoneAndPin = (phoneNumber: string, pin: string): string => {
+  const wallet = generateDeterministicWallet(phoneNumber, pin);
+  return wallet.address;
+};
 import { User } from '../models/user.model';
-import { Wallet } from '../models/wallet.model';
+import Wallet from '../models/wallet.model';
 import { Transaction, TransactionType, TransactionStatus } from '../models/transaction.model';
 import logger from '../config/logger';
 import crypto from 'crypto';
-import { initiateDeposit, verifyTransaction, initiateWithdrawal } from '../services/mockPaymentService';
+// Replace these mock service imports with real service imports
+import { verifyTransaction, waitForTransaction } from '../services/transactionVerificationService';
+import { encryptWallet, getWalletForTransaction } from '../blockchain/services/encryptionService';
+import { mintFujiUSDC } from '../services/faucetService';
+import { faucetWallet } from '../config/wallet';
+import { transferFromWallet } from '../blockchain/services/tokenService';
+import { ethers } from 'ethers';
+import { avalancheProvider } from '../blockchain/services/provider';
 
 // USSD Menu States
 enum MenuState {
@@ -143,38 +159,52 @@ export const handleUSSD = async (req: express.Request, res: express.Response) =>
             try {
               // Generate deterministic wallet from phone number and PIN
               const wallet = generateDeterministicWallet(phoneNumber, pin);
+              
+              // Log the full wallet address to verify it's correct
+              logger.info(`Created wallet address: ${wallet.address} with provider: ${wallet.provider ? 'Connected' : 'Not connected'}`);
+              
               const hashedPin = hashPin(pin);
               
-              // Create user in database, but we don't store the phone number
-              // We only store a hash of the phone number for lookup
+              // Create user in database
               const phoneHash = crypto.createHash('sha256').update(phoneNumber).digest('hex');
               
               const newUser = await User.create({
-                phoneNumber: phoneHash, // Store hashed phone number for privacy
-                pin: hashedPin, // Store hashed PIN
+                phoneNumber: phoneHash,
+                pin: hashedPin,
                 walletAddress: wallet.address
               });
               
-              // Create wallet in database, but don't store private key
+              // Encrypt the wallet's private key
+              const encryptedKey = await encryptWallet(wallet, pin);
+              
+              // Create and save the wallet with encrypted key
               const newWallet = await Wallet.create({
                 userId: newUser._id,
                 walletAddress: wallet.address,
-                // No private key storage - it can be derived when needed
+                encryptedKey: encryptedKey,
                 currency: 'USDC.e'
               });
+              
+              // Additional debugging
+              logger.info(`Wallet saved to DB with ID: ${newWallet._id}`);
               
               session.user = newUser;
               session.wallet = newWallet;
               session.state = MenuState.MAIN;
-              response = 'END Account created successfully!\n';
-              response += `Your wallet address: ${wallet.address.slice(0, 8)}...${wallet.address.slice(-6)}\n`;
-              response += 'Remember your PIN - it\'s needed to access your wallet!';
               
-              logger.info(`New account created for ${phoneHash}`);
+              // Test if wallet is valid
+              const isValid = await testWalletValidity(wallet);
+              
+              // Include in the response:
+              response = 'END Account created successfully!\n';
+              response += `Your wallet address: ${wallet.address}\n`;
+              response += `Blockchain connection: ${isValid ? 'VERIFIED ✓' : 'FAILED ✗'}\n`;
+              response += 'Remember your PIN - it\'s needed to access your wallet!';
             } catch (error) {
-              logger.error('Error creating account:', error);
-              response = 'END An error occurred. Please try again.';
-              session.state = MenuState.MAIN;
+              // Handle error properly with type checking
+              logger.error('Error creating account:', error instanceof Error ? error.message : 'Unknown error');
+              response = 'END Failed to create account. Please try again.';
+              session.state = MenuState.CREATE_ACCOUNT;
             }
           } else {
             response = 'CON Invalid PIN. Please enter a 4-digit PIN:';
@@ -230,12 +260,23 @@ export const handleUSSD = async (req: express.Request, res: express.Response) =>
           // Regenerate wallet from phone number and PIN
           const wallet = generateDeterministicWallet(phoneNumber, pin);
           
-          // Use this wallet to check balance directly - no need to store/retrieve private keys
-          const balance = await tokenService.getBalance('USDC.e', wallet.address);
+          // Get AVAX balance first (native token)
+          const avaxBalance = ethers.utils.formatEther(
+            await avalancheProvider.getBalance(wallet.address)
+          );
+          
+          // Try to get USDC.e balance
+          let usdcBalance = "0.0";
+          try {
+            usdcBalance = await tokenService.getBalance('USDC.e', wallet.address);
+          } catch (tokenError) {
+            logger.warn(`Error getting USDC.e balance: ${tokenError}`);
+          }
           
           response = 'END Your balance:\n';
-          response += `USDC.e: ${balance}\n`;
-          response += `Address: ${wallet.address.slice(0, 8)}...${wallet.address.slice(-6)}`;
+          response += `AVAX: ${avaxBalance}\n`;
+          response += `USDC.e: ${usdcBalance}\n`;  
+          response += `Address: ${wallet.address}`;
           
           // Log with just a wallet address for privacy
           const phoneHash = crypto.createHash('sha256').update(phoneNumber).digest('hex');
@@ -283,6 +324,73 @@ export const handleUSSD = async (req: express.Request, res: express.Response) =>
         }
         break;
 
+      case MenuState.TRANSFER:
+        const parts = text.split('*');
+        
+        if (parts.length === 2) { // Just entered recipient phone number
+          const recipientPhone = parts[1];
+          
+          // Validate phone number format
+          if (!/^\d{10,15}$/.test(recipientPhone)) {
+            response = 'CON Invalid phone number. Please enter a valid phone number:';
+            break;
+          }
+          
+          // Store recipient phone in session
+          session.data.recipientPhone = recipientPhone;
+          
+          // Look up recipient in the database
+          try {
+            // Hash the recipient phone for lookup
+            const recipientPhoneHash = crypto.createHash('sha256').update(recipientPhone).digest('hex');
+            const recipient = await User.findOne({ phoneNumber: recipientPhoneHash }).exec();
+            
+            if (!recipient) {
+              response = 'END Recipient not found. They need to create an Avanomad account first.';
+              session.state = MenuState.MAIN;
+              break;
+            }
+            
+            // Get recipient's wallet
+            const recipientWallet = await Wallet.findOne({ userId: recipient._id }).exec();
+            if (!recipientWallet) {
+              response = 'END Recipient wallet not found. Please try again later.';
+              session.state = MenuState.MAIN;
+              break;
+            }
+            
+            // Store recipient info for the transaction
+            session.data.recipientUserId = recipient._id;
+            session.data.recipientWalletAddress = recipientWallet.walletAddress;
+            
+            // Ask for transfer amount
+            response = 'CON Enter amount to transfer (in USDC.e):';
+          } catch (error) {
+            logger.error('Error looking up recipient:', error);
+            response = 'END An error occurred while finding the recipient. Please try again.';
+            session.state = MenuState.MAIN;
+          }
+        } else if (parts.length === 3) { // Entered amount after recipient
+          const amount = parseFloat(parts[2]);
+          
+          if (isNaN(amount) || amount <= 0) {
+            response = 'CON Invalid amount. Please enter a valid amount:';
+            break;
+          }
+          
+          // Store transfer amount
+          session.data.transferAmount = amount;
+          
+          // Move to PIN entry
+          session.state = MenuState.ENTER_PIN;
+          session.data.nextState = MenuState.CONFIRM_TRANSACTION;
+          session.data.transactionType = TransactionType.TRANSFER;
+          response = 'CON Enter your PIN to confirm transfer:';
+        } else {
+          response = 'CON Enter recipient phone number:';
+        }
+        break;
+
       case MenuState.ENTER_PIN:
         const pin = text.split('*').pop() || '';
         
@@ -305,6 +413,10 @@ export const handleUSSD = async (req: express.Request, res: express.Response) =>
                 response = `CON Confirm withdrawal of ${session.data.withdrawAmount} USDC.e:\n`;
                 response += '1. Confirm\n';
                 response += '2. Cancel';
+              } else if (session.data.transactionType === TransactionType.TRANSFER) {
+                response = `CON Confirm transfer of ${session.data.transferAmount} USDC.e to ${session.data.recipientPhone}:\n`;
+                response += '1. Confirm\n';
+                response += '2. Cancel';
               }
             } else {
               session.state = session.data.nextState || MenuState.MAIN;
@@ -324,77 +436,235 @@ export const handleUSSD = async (req: express.Request, res: express.Response) =>
         if (choice === '1') { // Confirm
           try {
             if (session.data.transactionType === TransactionType.DEPOSIT) {
-              // Process deposit
-              const depositResult = await initiateDeposit(
-                session.data.depositAmount,
-                phoneNumber
-              );
-              
-              // Create transaction record
-              await Transaction.create({
-                userId: session.user._id,
-                amount: session.data.depositAmount,
-                currency: 'NGN',
-                type: TransactionType.DEPOSIT,
-                status: depositResult.status,
-                reference: depositResult.reference,
-                walletAddress: session.wallet.walletAddress
-              });
-              
-              response = 'END Deposit initiated successfully!\n';
-              response += `Amount: ${session.data.depositAmount} NGN\n`;
-              response += `Reference: ${depositResult.reference}\n`;
-              response += 'You will receive your USDC.e shortly.';
-              
+              try {
+                // Generate deterministic wallet for the transaction using the PIN from the session
+                const wallet = generateDeterministicWallet(phoneNumber, session.data.pin);
+                
+                // Use real faucet to send USDC.e to user's wallet
+                const { receipt, gasReceipt } = await mintFujiUSDC(
+                  wallet.address,
+                  session.data.depositAmount.toString()
+                );
+                
+                // Create transaction record with blockchain transaction hash
+                await Transaction.create({
+                  userId: session.user._id,
+                  amount: session.data.depositAmount,
+                  currency: 'NGN', // Original currency
+                  type: TransactionType.DEPOSIT,
+                  status: TransactionStatus.COMPLETED,
+                  reference: receipt.transactionHash, // Use actual blockchain tx hash as reference
+                  walletAddress: session.wallet.walletAddress,
+                  blockNumber: receipt.blockNumber,
+                  blockchainTxHash: receipt.transactionHash
+                });
+                
+                // If we also funded gas, record it as a separate transaction
+                if (gasReceipt) {
+                  await Transaction.create({
+                    userId: session.user._id,
+                    amount: 0.05, // Standard gas amount
+                    currency: 'USDC.e',
+                    type: TransactionType.DEPOSIT,
+                    status: TransactionStatus.COMPLETED,
+                    reference: gasReceipt.transactionHash, // Use actual blockchain tx hash as reference
+                    walletAddress: session.wallet.walletAddress,
+                    blockNumber: gasReceipt.blockNumber,
+                    blockchainTxHash: gasReceipt.transactionHash
+                  });
+                }
+                
+                response = 'END Deposit successful!\n';
+                response += `Amount: ${session.data.depositAmount} USDC.e\n`;
+                response += `Transaction: ${receipt.transactionHash}`;
+                
+              } catch (error: unknown) {
+                logger.error('Error processing deposit:', error);
+                response = 'END Deposit failed. Please try again later.\n';
+                // Fix 1: Check if error is an object with a message property
+                response += 'Error: ' + (error instanceof Error ? error.message : 'Unknown error');
+                
+                // Create failed transaction record
+                await Transaction.create({
+                  userId: session.user._id,
+                  amount: session.data.depositAmount,
+                  currency: 'NGN',
+                  type: TransactionType.DEPOSIT,
+                  status: TransactionStatus.FAILED,
+                  reference: `failed-${Date.now()}`,
+                  walletAddress: session.wallet.walletAddress,
+                  // Fix 2: Same pattern for failureReason
+                  failureReason: error instanceof Error ? error.message : 'Unknown error'
+                });
+              }
             } else if (session.data.transactionType === TransactionType.WITHDRAWAL) {
-              // Process withdrawal using mock service
-              const withdrawalResult = await initiateWithdrawal(
-                session.data.withdrawAmount,
-                phoneNumber, // Using phone number as account for demo
-                'mock-bank'
-              );
-              
-              // Create transaction record
-              await Transaction.create({
-                userId: session.user._id,
-                amount: session.data.withdrawAmount,
-                currency: 'USDC.e',
-                type: TransactionType.WITHDRAWAL,
-                status: withdrawalResult.status,
-                reference: withdrawalResult.reference,
-                walletAddress: session.wallet.walletAddress
-              });
-              
-              response = 'END Withdrawal initiated successfully!\n';
-              response += `Amount: ${session.data.withdrawAmount} USDC.e\n`;
-              response += `Reference: ${withdrawalResult.reference}\n`;
-              response += 'You will receive your funds shortly.';
+              try {
+                // Get signing wallet using pin from session
+                const wallet = await getWalletForTransaction(
+                  phoneNumber,
+                  session.data.pin,
+                  session.wallet.encryptedKey
+                );
+                
+                // Destination address could be your treasury wallet or another address
+                const treasuryAddress = process.env.TREASURY_ADDRESS || faucetWallet.address;
+                
+                // Execute the withdrawal as a transfer from user's wallet to treasury
+                const receipt = await transferFromWallet(
+                  'USDC.e',
+                  wallet,
+                  treasuryAddress,
+                  session.data.withdrawAmount.toString()
+                );
+                
+                // Create transaction record
+                await Transaction.create({
+                  userId: session.user._id,
+                  amount: session.data.withdrawAmount,
+                  currency: 'USDC.e',
+                  type: TransactionType.WITHDRAWAL,
+                  status: TransactionStatus.COMPLETED,
+                  reference: receipt.transactionHash,
+                  walletAddress: session.wallet.walletAddress,
+                  blockNumber: receipt.blockNumber,
+                  blockchainTxHash: receipt.transactionHash
+                });
+                
+                response = 'END Withdrawal successful!\n';
+                response += `Amount: ${session.data.withdrawAmount} USDC.e\n`;
+                response += `Transaction: ${receipt.transactionHash}`;
+                
+              } catch (error) {
+                logger.error('Error processing withdrawal:', error);
+                
+                // Create failed transaction record
+                await Transaction.create({
+                  userId: session.user._id,
+                  amount: session.data.withdrawAmount,
+                  currency: 'USDC.e',
+                  type: TransactionType.WITHDRAWAL,
+                  status: TransactionStatus.FAILED,
+                  reference: `failed-${Date.now()}`,
+                  walletAddress: session.wallet.walletAddress,
+                  failureReason: error instanceof Error ? error.message : 'Unknown error'
+                });
+                
+                response = 'END Withdrawal failed. Please try again later.\n';
+                response += 'Error: ' + (error instanceof Error ? error.message : 'Unknown error');
+              }
+            } else if (session.data.transactionType === TransactionType.TRANSFER) {
+              try {
+                // Get signing wallet using pin from session
+                const wallet = await getWalletForTransaction(
+                  phoneNumber,
+                  session.data.pin,
+                  session.wallet.encryptedKey
+                );
+                
+                // Execute the transfer from user's wallet to recipient's wallet
+                const receipt = await transferFromWallet(
+                  'USDC.e',
+                  wallet,
+                  session.data.recipientWalletAddress,
+                  session.data.transferAmount.toString()
+                );
+                
+                // Create transaction record for sender
+                await Transaction.create({
+                  userId: session.user._id,
+                  amount: session.data.transferAmount,
+                  currency: 'USDC.e',
+                  type: TransactionType.TRANSFER,
+                  status: TransactionStatus.COMPLETED,
+                  reference: receipt.transactionHash,
+                  walletAddress: session.wallet.walletAddress,
+                  recipientWalletAddress: session.data.recipientWalletAddress,
+                  blockNumber: receipt.blockNumber,
+                  blockchainTxHash: receipt.transactionHash
+                });
+                
+                // Create transaction record for recipient (as a receive)
+                await Transaction.create({
+                  userId: session.data.recipientUserId,
+                  amount: session.data.transferAmount,
+                  currency: 'USDC.e',
+                  type: TransactionType.RECEIVE,
+                  status: TransactionStatus.COMPLETED,
+                  reference: receipt.transactionHash,
+                  walletAddress: session.data.recipientWalletAddress,
+                  senderWalletAddress: session.wallet.walletAddress,
+                  blockNumber: receipt.blockNumber,
+                  blockchainTxHash: receipt.transactionHash
+                });
+                
+                response = 'END Transfer successful!\n';
+                response += `Amount: ${session.data.transferAmount} USDC.e\n`;
+                response += `To: ${session.data.recipientPhone.substring(0, 4)}****${session.data.recipientPhone.substring(session.data.recipientPhone.length - 2)}\n`;
+                response += `Transaction: ${receipt.transactionHash}`;
+                
+              } catch (error) {
+                logger.error('Error processing transfer:', error);
+                
+                // Create failed transaction record
+                await Transaction.create({
+                  userId: session.user._id,
+                  amount: session.data.transferAmount,
+                  currency: 'USDC.e',
+                  type: TransactionType.TRANSFER,
+                  status: TransactionStatus.FAILED,
+                  reference: `failed-${Date.now()}`,
+                  walletAddress: session.wallet.walletAddress,
+                  recipientWalletAddress: session.data.recipientWalletAddress,
+                  failureReason: error instanceof Error ? error.message : 'Unknown error'
+                });
+                
+                response = 'END Transfer failed. Please try again later.\n';
+                response += 'Error: ' + (error instanceof Error ? error.message : 'Unknown error');
+              }
             }
           } catch (error) {
-            logger.error('Transaction error:', error);
-            response = 'END An error occurred while processing your transaction. Please try again.';
+            logger.error('Error confirming transaction:', error);
+            response = 'END An error occurred while processing your request. Please try again.';
           }
-        } else if (choice === '2') { // Cancel
-          response = 'END Transaction cancelled.';
         } else {
-          response = `CON Invalid option. Confirm transaction:\n`;
-          response += '1. Confirm\n';
-          response += '2. Cancel';
+          // Cancel or invalid choice
+          response = 'END Transaction cancelled.';
+          session.state = MenuState.MAIN;
         }
-        
-        session.state = MenuState.MAIN;
         break;
-        
-      default:
-        response = 'END An error occurred. Please try again.';
-        session.state = MenuState.MAIN;
     }
     
+    // Send response back to USSD gateway
     res.set('Content-Type', 'text/plain');
     res.send(response);
   } catch (error) {
-    logger.error(`USSD handler error: ${error}`);
-    res.set('Content-Type', 'text/plain');
-    res.send('END An error occurred. Please try again later.');
+    logger.error('Error handling USSD request:', error);
+    res.status(500).send('END An unexpected error occurred. Please try again later.');
   }
 };
+
+// Helper function to get signing wallet (for withdrawals)
+// Helper function to get signing wallet (for withdrawals)
+async function getSigningWallet(phoneNumber: string, pin: string, encryptedKey: string) {
+  // Decrypt the wallet's private key using the PIN
+  const wallet = await decryptWallet(encryptedKey, pin);
+  return wallet;
+}
+
+// Helper function to decrypt wallet (using PIN)
+// In production, use a more secure key management solution
+async function decryptWallet(encryptedKey: string, pin: string) {
+  // For demo, just return the wallet directly - in reality, decrypt using key derivation from PIN
+  return JSON.parse(Buffer.from(encryptedKey, 'base64').toString('utf-8'));
+}
+// Helper function to transfer from wallet (for withdrawals)
+// In production, replace with real blockchain transfer logic
+// async function transferFromWallet(currency: string, fromWallet: any, toAddress: string, amount: string) {
+//   logger.info(`Transferring ${amount} ${currency} from wallet ${fromWallet.address} to ${toAddress}`);
+  
+//   // Simulate successful transfer - in reality, call blockchain transfer API
+//   return {
+//     transactionHash: crypto.randomBytes(16).toString('hex'),
+//     blockNumber: 123456
+//   };
+// }
