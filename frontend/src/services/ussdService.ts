@@ -1,7 +1,7 @@
 import axios from 'axios';
 import isAxiosError  from 'axios';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://avanomad-esbp.onrender.com/';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://avanomad-esbp.onrender.com';
 
 // Create a session ID that persists during the user's session
 const getSessionId = () => {
