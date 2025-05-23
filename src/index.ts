@@ -24,7 +24,9 @@ app.use(express.urlencoded({ extended: true }));
 
 // Update CORS configuration to allow requests from frontend
 const corsOptions = {
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173, https://avanomad.vercel.app, https://avanomad-esbp.onrender.com',
+  origin: process.env.FRONTEND_URL 
+    ? process.env.FRONTEND_URL.split(',').map(url => url.trim())
+    : ['http://localhost:5173', 'https://avanomad.vercel.app', 'https://avanomad-esbp.onrender.com'],
   methods: ['GET', 'POST', 'OPTIONS'],
   allowedHeaders: ['Content-Type'],
   credentials: true
