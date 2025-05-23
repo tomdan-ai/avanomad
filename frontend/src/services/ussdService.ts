@@ -1,7 +1,6 @@
 import axios from 'axios';
 
-// Configure base URL - adjust this to match your backend URL
-const API_BASE_URL = 'http://localhost:3000';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
 
 // Create a session ID that persists during the user's session
 const getSessionId = () => {
@@ -15,7 +14,7 @@ const getSessionId = () => {
 
 // Main function to interact with USSD API
 export const processUSSD = async (
-  phoneNumber: string, 
+  phoneNumber: string,
   text: string
 ): Promise<string> => {
   try {
@@ -25,7 +24,7 @@ export const processUSSD = async (
       phoneNumber,
       text
     });
-    
+
     return response.data;
   } catch (error) {
     console.error('USSD API Error:', error);
