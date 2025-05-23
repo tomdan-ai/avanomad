@@ -1,4 +1,5 @@
 import axios from 'axios';
+import isAxiosError  from 'axios';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
 
@@ -25,13 +26,21 @@ export const processUSSD = async (
       text
     });
 
-    return response.data;
-  } catch (error) {
+    return typeof response.data === 'string' 
+      ? response.data 
+      : String(response.data);
+  } catch (error: any) {
     console.error('USSD API Error:', error);
-    if (axios.isAxiosError(error) && error.response) {
+    if (await isAxiosError(error) && error.response) {
       return `END Error: ${error.response.status} - ${error.response.data}`;
     }
-    return 'END Connection error. Please try again.';
+    // Type guard pattern for error handling
+    if (error instanceof Error) {
+      return `END Error: ${error.message}`;
+    } else {
+      // Handle case where error is not an Error instance
+      return 'END An unknown error occurred';
+    }
   }
 };
 
