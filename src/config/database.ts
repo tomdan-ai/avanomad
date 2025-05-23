@@ -5,7 +5,7 @@ import logger from './logger';
 dotenv.config();
 
 // MongoDB connection URI
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/avanomad';
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb+srv://kingtom:tomdan-ai@avanomad.zjzwbn2.mongodb.net/avanomad?retryWrites=true&w=majority&appName=avanomad';
 
 // Connect to MongoDB
 export const connectToDatabase = async (): Promise<void> => {
