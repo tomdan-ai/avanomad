@@ -28,7 +28,7 @@ const startMockUssd = () => {
 // Process USSD requests
 const processUssd = async () => {
   try {
-    const response = await axios.post('http://localhost:3000/ussd', {
+    const response = await axios.post('https://avanomad-esbp.onrender.com/ussd', {
       sessionId,
       serviceCode,
       phoneNumber,
