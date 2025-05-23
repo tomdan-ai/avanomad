@@ -54,7 +54,7 @@ const FeatureCard = ({
     <Card className={cn('h-full shadow-none', className)} data-aos='fade-up'>
       <CardHeader>
         <div className='mb-2 flex h-12 w-12 items-center justify-center rounded-lg bg-gradient-to-r from-primary-red to-primary-blue'>
-          <Icon className='h-6 w-6' />
+          <Icon className='h-6 w-6 text-white' />
         </div>
         <CardTitle className='text-xl'>{title}</CardTitle>
       </CardHeader>
