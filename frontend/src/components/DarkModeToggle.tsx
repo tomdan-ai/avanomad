@@ -10,7 +10,6 @@ export default function DarkModeToggle ({ className }: DarkModeToggleProps) {
   const [isDarkMode, setIsDarkMode] = useState(false)
 
   useEffect(() => {
-    // Check initial color scheme preference
     const prefersDark = window.matchMedia(
       '(prefers-color-scheme: dark)'
     ).matches
@@ -45,16 +44,15 @@ export default function DarkModeToggle ({ className }: DarkModeToggleProps) {
     <button
       onClick={toggleDarkMode}
       className={cn(
-        'p-2 rounded-md transition-all duration-200',
-        isDarkMode
-          ? 'text-white hover:bg-gray-800'
-          : 'text-gray-800 hover:bg-gray-100',
+        'p-2 rounded-lg transition-all duration-200 cursor-pointer',
+        'hover:bg-black/5 dark:hover:bg-white/10',
+        'active:scale-90',
         className
       )}
       aria-label='Toggle dark mode'
     >
       <span className='font-medium sr-only'>Dark Mode</span>
-      {isDarkMode ? <Sun size={20} /> : <Moon size={20} />}
+      {isDarkMode ? <Sun size={18} /> : <Moon size={18} />}
     </button>
   )
 }

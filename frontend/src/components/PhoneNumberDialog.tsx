@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
+import { Smartphone } from 'lucide-react'
 
 interface PhoneNumberDialogProps {
   isOpen: boolean
@@ -45,17 +46,27 @@ export function PhoneNumberDialog ({
   if (!isOpen) return null
 
   return (
-    <div className='fixed inset-0 bg-black/50 flex items-center justify-center z-50'>
+    <div className='fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4'>
       <div
-        className='bg-white dark:bg-gray-800 rounded-lg p-6 w-[90%] max-w-md shadow-xl'
+        className='bg-white dark:bg-gray-900 rounded-2xl p-6 sm:p-8 w-full max-w-md shadow-2xl border border-border/50'
         onClick={e => e.stopPropagation()}
       >
-        <h2 className='text-xl font-bold mb-4'>Phone Number</h2>
-        <p className='text-gray-600 dark:text-gray-300 mb-4'>
-          Enter your phone number to use the USSD service:
-        </p>
+        <div className='flex items-center gap-3 mb-6'>
+          <div className='flex h-10 w-10 items-center justify-center rounded-xl bg-primary-blue/10'>
+            <Smartphone className='h-5 w-5 text-primary-blue' />
+          </div>
+          <div>
+            <h2 className='text-lg font-bold'>Phone Number</h2>
+            <p className='text-sm text-muted-foreground'>
+              Required for the USSD demo
+            </p>
+          </div>
+        </div>
 
-        <div className='mb-4'>
+        <div className='mb-6'>
+          <label className='block text-sm font-medium mb-2 text-muted-foreground'>
+            Enter your phone number
+          </label>
           <input
             type='tel'
             value={phoneNumber}
@@ -64,18 +75,32 @@ export function PhoneNumberDialog ({
               setPhoneNumber(e.target.value)
               setError('')
             }}
-            placeholder='Enter phone number'
-            className='w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500'
+            onKeyDown={e => e.key === 'Enter' && handleSubmit()}
+            placeholder='e.g. 07012345678'
+            className='w-full h-12 px-4 border border-border rounded-xl bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary-blue/50 focus:border-primary-blue transition-all text-base'
             autoFocus
           />
-          {error && <p className='text-red-500 text-sm mt-1'>{error}</p>}
+          {error && (
+            <p className='text-red-500 text-sm mt-2 flex items-center gap-1'>
+              <span>⚠</span> {error}
+            </p>
+          )}
         </div>
 
-        <div className='flex justify-end space-x-3'>
-          <Button variant='outline' onClick={() => onClose()}>
+        <div className='flex gap-3'>
+          <Button
+            variant='outline'
+            onClick={() => onClose()}
+            className='flex-1 h-11 rounded-xl'
+          >
             Cancel
           </Button>
-          <Button onClick={handleSubmit}>Continue</Button>
+          <Button
+            onClick={handleSubmit}
+            className='flex-1 h-11 rounded-xl bg-gradient-to-r from-primary-red to-primary-blue text-white hover:opacity-90'
+          >
+            Continue
+          </Button>
         </div>
       </div>
     </div>

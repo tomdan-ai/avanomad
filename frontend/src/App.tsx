@@ -12,7 +12,12 @@ import { useEffect } from 'react'
 
 function App () {
   useEffect(() => {
-    AOS.init()
+    AOS.init({
+      duration: 700,
+      easing: 'ease-out-cubic',
+      once: true,
+      offset: 80
+    })
   }, [])
 
   return (
@@ -20,8 +25,6 @@ function App () {
       <Routes>
         <Route path='/' element={<Home />} />
         <Route path='/ussd-interface' element={<USSDInterface />} />
-
-        {/* Fallback route for 404 handling */}
         <Route path='*' element={<Navigate to='/' replace />} />
       </Routes>
     </Router>

@@ -13,21 +13,21 @@ import { SectionHeading } from '@/components/Section'
 
 const Features = () => {
   return (
-    <Section id='features' fullWidth className='bg-primary-red/5'>
+    <Section id='features' fullWidth className='bg-gradient-to-b from-primary-red/5 to-transparent'>
       <SectionHeading
         title='Features'
-        subtitle='Explore the features of our platform'
+        subtitle='Everything you need for accessible crypto transactions'
         centered
       />
 
-      <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4'>
-        {FEATURES.map(feature => (
+      <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 md:gap-6 w-full'>
+        {FEATURES.map((feature, index) => (
           <FeatureCard
             key={feature.title}
             title={feature.title}
             description={feature.description}
             icon={feature.icon as LucideIcon}
-            className='shadow-md'
+            index={index}
           />
         ))}
       </div>
@@ -41,25 +41,35 @@ interface FeatureCardProps {
   title: string
   description: string
   icon: LucideIcon
-  className?: string
+  index: number
 }
 
 const FeatureCard = ({
   title,
   description,
   icon: Icon,
-  className
+  index
 }: FeatureCardProps) => {
   return (
-    <Card className={cn('h-full shadow-none', className)} data-aos='fade-up'>
+    <Card
+      className={cn(
+        'h-full border border-border/60 bg-card/80 backdrop-blur-sm',
+        'hover:shadow-lg hover:shadow-primary-blue/5 hover:-translate-y-1',
+        'transition-all duration-300 ease-out group'
+      )}
+      data-aos='fade-up'
+      data-aos-delay={index * 80}
+    >
       <CardHeader>
-        <div className='mb-2 flex h-12 w-12 items-center justify-center rounded-lg bg-gradient-to-r from-primary-red to-primary-blue'>
+        <div className='mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-primary-red to-primary-blue shadow-sm group-hover:shadow-md group-hover:scale-105 transition-all duration-300'>
           <Icon className='h-6 w-6 text-white' />
         </div>
-        <CardTitle className='text-xl'>{title}</CardTitle>
+        <CardTitle className='text-lg sm:text-xl'>{title}</CardTitle>
       </CardHeader>
       <CardContent>
-        <CardDescription className='text-base'>{description}</CardDescription>
+        <CardDescription className='text-sm sm:text-base leading-relaxed'>
+          {description}
+        </CardDescription>
       </CardContent>
     </Card>
   )
