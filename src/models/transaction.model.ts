@@ -29,6 +29,10 @@ export interface ITransaction extends Document {
   failureReason?: string;
   accountNumber?: string;
   bankCode?: string;
+  recipientWalletAddress?: string;
+  senderWalletAddress?: string;
+  exchangeRate?: number;
+  fee?: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -69,7 +73,6 @@ const transactionSchema = new Schema<ITransaction>(
     reference: {
       type: String,
       required: false,
-      unique: true,
       sparse: true,
     },
     blockchainTxHash: {
@@ -91,6 +94,23 @@ const transactionSchema = new Schema<ITransaction>(
     bankCode: {
       type: String,
       required: false,
+    },
+    recipientWalletAddress: {
+      type: String,
+      required: false,
+    },
+    senderWalletAddress: {
+      type: String,
+      required: false,
+    },
+    exchangeRate: {
+      type: Number,
+      required: false,
+    },
+    fee: {
+      type: Number,
+      required: false,
+      default: 0,
     },
   },
   {

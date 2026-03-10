@@ -1,44 +1,54 @@
 'use client'
 import { Phone } from '@/components/Phone'
 import { NavBar, Footer } from '@/components'
+import { Info } from 'lucide-react'
 
 export default function USSDInterface () {
   return (
-    <>
+    <div className='min-h-screen flex flex-col'>
       <NavBar />
-      <div className='flex items-center justify-center min-h-screen bg-muted/30 py-32'>
-        <div className='container'>
-          <h1 className='text-3xl md:text-4xl font-bold text-center mb-8'>
-            Try Our USSD Interface
-          </h1>
-          <p className='text-center text-muted-foreground max-w-2xl mx-auto mb-12'>
-            Experience how Avanomad works on feature phones. Dial a USSD code
-            (try *123#) to simulate the service.
-          </p>
+
+      <main className='flex-1 flex items-center justify-center bg-gradient-to-b from-muted/30 to-transparent'>
+        <div className='w-full max-w-4xl mx-auto px-5 sm:px-6 py-28 sm:py-32'>
+          {/* Header */}
+          <div className='text-center mb-10 md:mb-14'>
+            <h1 className='text-3xl sm:text-4xl md:text-5xl font-bold mb-4'>
+              Try the USSD Demo
+            </h1>
+            <p className='text-base sm:text-lg text-muted-foreground max-w-xl mx-auto leading-relaxed'>
+              Experience how Avanomad works on feature phones. Dial{' '}
+              <code className='px-2 py-0.5 rounded-md bg-muted text-sm font-mono font-semibold'>
+                *123#
+              </code>{' '}
+              to get started.
+            </p>
+          </div>
+
+          {/* Phone */}
           <div className='flex items-center justify-center'>
             <Phone />
           </div>
 
-          <div className='mt-6 p-4 bg-gray-100 dark:bg-gray-700 border border-gray-400 dark:border-gray-600 rounded-lg max-w-md mx-auto'>
-            <p className='mb-2'>
-              <span className='font-bold text-yellow-700 dark:text-yellow-400'>
-                NOTE:
-              </span>
-            </p>
-            <p className='text-sm text-gray-700 dark:text-gray-300 mb-2'>
-              This is a <span className='font-semibold'>simulation</span> of
-              USSD functionality. Real USSD services (like Talking Africa) are
-              prohibitively expensive.
-            </p>
-            <p className='text-sm text-gray-700 dark:text-gray-300'>
-              In a production environment, actual USSD gateways to provide this
-              service to users without smartphones or internet access will be
-              used.
-            </p>
+          {/* Info Note */}
+          <div className='mt-10 p-5 sm:p-6 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 rounded-2xl max-w-lg mx-auto'>
+            <div className='flex items-start gap-3'>
+              <Info className='h-5 w-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5' />
+              <div>
+                <p className='font-semibold text-amber-800 dark:text-amber-300 mb-2'>
+                  Simulation Mode
+                </p>
+                <p className='text-sm text-amber-700 dark:text-amber-400/80 leading-relaxed'>
+                  This is a demo of the USSD functionality. In production,
+                  actual USSD gateways will provide this service to users
+                  without smartphones or internet access.
+                </p>
+              </div>
+            </div>
           </div>
         </div>
-      </div>
+      </main>
+
       <Footer />
-    </>
+    </div>
   )
 }

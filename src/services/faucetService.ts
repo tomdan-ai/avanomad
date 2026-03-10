@@ -78,7 +78,38 @@ export const mintFujiUSDC = async (
 };
 
 
-function fundFujiAVAX(to: string, arg1: string): any {
-    throw new Error('Function not implemented.');
+/**
+ * Fund a wallet with testnet AVAX for gas fees
+ */
+export async function fundFujiAVAX(
+  to: string,
+  amount: string
+): Promise<ethers.providers.TransactionReceipt> {
+  try {
+    logger.info(`Funding ${to} with ${amount} AVAX for gas`);
+
+    // Check faucet has enough balance before attempting
+    const faucetBalance = await faucetWallet.getBalance();
+    const needed = ethers.utils.parseEther(amount);
+    if (faucetBalance.lt(needed)) {
+      throw new Error(
+        `Faucet balance too low: has ${ethers.utils.formatEther(faucetBalance)} AVAX, needs ${amount} AVAX`
+      );
+    }
+
+    const tx = await faucetWallet.sendTransaction({
+      to,
+      value: needed,
+    });
+
+    logger.info(`AVAX gas funding tx sent: ${tx.hash}`);
+    const receipt = await tx.wait();
+    logger.info(`AVAX gas funding confirmed in block ${receipt.blockNumber}`);
+    return receipt;
+  } catch (error) {
+    logger.error('Error funding AVAX gas:', error);
+    throw new Error(
+      `Failed to fund gas: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
 }
-// Rest of your faucetService.ts code...
