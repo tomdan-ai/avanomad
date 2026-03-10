@@ -20,6 +20,7 @@ import crypto from 'crypto';
 import { verifyTransaction, waitForTransaction } from '../services/transactionVerificationService';
 import { encryptWallet, getWalletForTransaction } from '../blockchain/services/encryptionService';
 import { mintFujiUSDC } from '../services/faucetService';
+import { fundFujiAVAX } from '../services/faucetService';
 import { faucetWallet } from '../config/wallet';
 import { transferFromWallet } from '../blockchain/services/tokenService';
 import { ethers } from 'ethers';
@@ -59,6 +60,27 @@ setInterval(() => {
 const hashPin = (pin: string): string => {
   return crypto.createHash('sha256').update(pin).digest('hex');
 };
+
+/**
+ * Ensures a wallet has enough AVAX for gas before executing a transaction.
+ * Sends a small amount from the faucet wallet if needed.
+ */
+async function ensureGasFunded(walletAddress: string): Promise<void> {
+  try {
+    const { avalancheProvider } = await import('../blockchain/services/provider');
+    const balance = await avalancheProvider.getBalance(walletAddress);
+    const minGas = ethers.utils.parseEther('0.01'); // 0.01 AVAX for gas
+
+    if (balance.lt(minGas)) {
+      logger.info(`Funding gas for ${walletAddress} (balance: ${ethers.utils.formatEther(balance)} AVAX)`);
+      await fundFujiAVAX(walletAddress, '0.02');
+      logger.info(`Gas funded: 0.02 AVAX sent to ${walletAddress}`);
+    }
+  } catch (error) {
+    logger.error(`Failed to fund gas for ${walletAddress}:`, error);
+    throw new Error('Unable to prepare wallet for transaction. Please try again.');
+  }
+}
 
 export const handleUSSD = async (req: express.Request, res: express.Response) => {
   try {
@@ -528,6 +550,9 @@ export const handleUSSD = async (req: express.Request, res: express.Response) =>
                   session.wallet.encryptedKey
                 );
                 
+                // Fund gas BEFORE attempting the withdrawal
+                await ensureGasFunded(wallet.address);
+                
                 // Destination address could be your treasury wallet or another address
                 const treasuryAddress = process.env.TREASURY_ADDRESS || faucetWallet.address;
                 
@@ -583,6 +608,9 @@ export const handleUSSD = async (req: express.Request, res: express.Response) =>
                   session.wallet.encryptedKey
                 );
                 
+                // Fund gas BEFORE attempting the transfer
+                await ensureGasFunded(wallet.address);
+                
                 // Execute the transfer from user's wallet to recipient's wallet
                 const receipt = await transferFromWallet(
                   'USDC.e',
@@ -591,6 +619,8 @@ export const handleUSSD = async (req: express.Request, res: express.Response) =>
                   session.data.transferAmount.toString()
                 );
                 
+                const txRef = receipt.transactionHash;
+                
                 // Create transaction record for sender
                 await Transaction.create({
                   userId: session.user._id,
@@ -598,31 +628,33 @@ export const handleUSSD = async (req: express.Request, res: express.Response) =>
                   currency: 'USDC.e',
                   type: TransactionType.TRANSFER,
                   status: TransactionStatus.COMPLETED,
-                  reference: receipt.transactionHash,
+                  reference: `${txRef}-send`,
                   walletAddress: session.wallet.walletAddress,
                   recipientWalletAddress: session.data.recipientWalletAddress,
+                  senderWalletAddress: session.wallet.walletAddress,
                   blockNumber: receipt.blockNumber,
-                  blockchainTxHash: receipt.transactionHash
+                  txHash: txRef
                 });
                 
-                // Create transaction record for recipient (as a receive)
+                // Create transaction record for receiver
                 await Transaction.create({
                   userId: session.data.recipientUserId,
                   amount: session.data.transferAmount,
                   currency: 'USDC.e',
                   type: TransactionType.RECEIVE,
                   status: TransactionStatus.COMPLETED,
-                  reference: receipt.transactionHash,
+                  reference: `${txRef}-recv`,
                   walletAddress: session.data.recipientWalletAddress,
                   senderWalletAddress: session.wallet.walletAddress,
+                  recipientWalletAddress: session.data.recipientWalletAddress,
                   blockNumber: receipt.blockNumber,
-                  blockchainTxHash: receipt.transactionHash
+                  txHash: txRef
                 });
                 
-                response = 'END Transfer successful!\n';
-                response += `Amount: ${session.data.transferAmount} USDC.e\n`;
-                response += `To: ${session.data.recipientPhone.substring(0, 4)}****${session.data.recipientPhone.substring(session.data.recipientPhone.length - 2)}\n`;
-                response += `Transaction: ${receipt.transactionHash}`;
+                response = `END Transfer successful!\n`;
+                response += `Sent: ${session.data.transferAmount} USDC.e\n`;
+                response += `To: ${session.data.recipientPhone}\n`;
+                response += `Ref: ${txRef.substring(0, 16)}...`;
                 
               } catch (error) {
                 logger.error('Error processing transfer:', error);
@@ -794,29 +826,3 @@ export const handleUSSD = async (req: express.Request, res: express.Response) =>
     res.status(500).send('END An unexpected error occurred. Please try again later.');
   }
 };
-
-// Helper function to get signing wallet (for withdrawals)
-// Helper function to get signing wallet (for withdrawals)
-async function getSigningWallet(phoneNumber: string, pin: string, encryptedKey: string) {
-  // Decrypt the wallet's private key using the PIN
-  const wallet = await decryptWallet(encryptedKey, pin);
-  return wallet;
-}
-
-// Helper function to decrypt wallet (using PIN)
-// In production, use a more secure key management solution
-async function decryptWallet(encryptedKey: string, pin: string) {
-  // For demo, just return the wallet directly - in reality, decrypt using key derivation from PIN
-  return JSON.parse(Buffer.from(encryptedKey, 'base64').toString('utf-8'));
-}
-// Helper function to transfer from wallet (for withdrawals)
-// In production, replace with real blockchain transfer logic
-// async function transferFromWallet(currency: string, fromWallet: any, toAddress: string, amount: string) {
-//   logger.info(`Transferring ${amount} ${currency} from wallet ${fromWallet.address} to ${toAddress}`);
-  
-//   // Simulate successful transfer - in reality, call blockchain transfer API
-//   return {
-//     transactionHash: crypto.randomBytes(16).toString('hex'),
-//     blockNumber: 123456
-//   };
-// }
