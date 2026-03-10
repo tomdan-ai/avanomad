@@ -14,6 +14,9 @@ const serviceCode = '*384*12345#';
 let phoneNumber = '';
 let text = '';
 
+// Base URL: use env var so it works locally and in CI
+const BASE_URL = process.env.API_URL || 'http://localhost:3000';
+
 // Start the USSD CLI
 const startMockUssd = () => {
   console.log('\n===== MOCK USSD CLI =====');
@@ -28,7 +31,7 @@ const startMockUssd = () => {
 // Process USSD requests
 const processUssd = async () => {
   try {
-    const response = await axios.post('https://avanomad-esbp.onrender.com/ussd', {
+    const response = await axios.post(`${BASE_URL}/ussd`, {
       sessionId,
       serviceCode,
       phoneNumber,
